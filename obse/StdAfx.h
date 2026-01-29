@@ -22,7 +22,6 @@
 #include <winsock2.h>
 #include <windows.h>
 #include <windowsx.h>
-#include <atltypes.h>
 #include <commctrl.h>
 #include <richedit.h>
 #include <shlobj.h>
