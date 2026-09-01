@@ -586,7 +586,7 @@ bool SCRIPT_ASSERT(bool expr, Script* script, const char * errorMsg, ...);
 class ScriptRunner
 {
 public:
-	static ScriptRunner *	GetSingleton;
+	static ScriptRunner *	GetSingleton();
 
 	UInt32					unk00;						//00
 	UInt32					unk04;						//04

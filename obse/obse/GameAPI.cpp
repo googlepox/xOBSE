@@ -132,6 +132,9 @@ static const UInt32 g_IniSettingCollection = 0x00B07BF0;
 typedef FontManager* (* _FontManager_GetSingleton)(void);
 const _FontManager_GetSingleton FontManager_GetSingleton = (_FontManager_GetSingleton)0x00576A30;
 
+typedef ScriptRunner* (*_ScriptRunner_GetSingleton)(void);
+const _ScriptRunner_GetSingleton ScriptRunner_GetSingleton = (_ScriptRunner_GetSingleton)0x00516970;
+
 const NiTMapBase<const char*, NiFormArray*>**  g_IdleAnimationMap = (const NiTMapBase<const char*, NiFormArray*>**)0x00B362C0;
 const _GetFormModelPath GetFormModelPath = (_GetFormModelPath)0x0046D3F0;
 
@@ -1506,5 +1509,10 @@ bool FontManager::FontInfo::GetName(char* out)
 	out[len] = 0;
 
 	return true;
+}
+
+ScriptRunner* ScriptRunner::GetSingleton()
+{
+	return (ScriptRunner*)InterfaceManager_GetSingleton(false, true);
 }
 
