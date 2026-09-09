@@ -13,6 +13,31 @@ Archive** const g_ArchiveByTypeList    = (Archive**)0x00B3390C;
 NiTArray<BSHash>* const g_archiveInvalidatedFilenames = (NiTArray<BSHash>*) 0x00B33930;
 NiTArray<BSHash>* const g_archiveInvalidatedDirectoryPaths = (NiTArray<BSHash>*) 0x00B33934;
 
+static const OBSE_ESLInterface* s_esl = nullptr;
+
+extern "C" __declspec(dllexport)
+void __cdecl OBSE_SetESLInterface(const OBSE_ESLInterface* iface)
+{
+	s_esl = iface;
+}
+
+const OBSE_ESLInterface* GetESLInterface()
+{
+	return s_esl;
+}
+
+std::unordered_map<std::string, UInt8>	s_modIndexCache;
+UInt32									s_cachedCount = 0xFFFFFFFF;
+ModEntry::Data* s_cachedFirst = nullptr;
+
+std::string ToLower(const char* s)
+{
+	std::string out(s ? s : "");
+	std::transform(out.begin(), out.end(), out.begin(),
+		[](unsigned char c) { return (char)std::tolower(c); });
+	return out;
+}
+
 class LoadedModFinder
 {
 	const char * m_stringToFind;
@@ -34,50 +59,120 @@ const ModEntry * DataHandler::LookupModByName(const char * modName)
 const ModEntry ** DataHandler::GetActiveModList()
 {
 	static const ModEntry* activeModList[0x100] = { 0 };
+	static UInt32			cachedCount = 0xFFFFFFFF;
+	static ModEntry::Data* cachedFirst = nullptr;
 
-	if (!(*activeModList))
+	ModEntry::Data* first = (numLoadedMods > 0) ? modsByID[0] : nullptr;
+
+	if (numLoadedMods != cachedCount || first != cachedFirst)
 	{
-		UInt8 index = 0;
-		for (ModEntry* entry = &(*g_dataHandler)->modList; entry; entry = entry->next)
+		memset(activeModList, 0, sizeof(activeModList));
+
+		for (UInt32 idx = 0; idx < numLoadedMods && idx < 0x100; ++idx)
 		{
-			if (entry->IsLoaded())
-				activeModList[index++] = entry;
+			ModEntry::Data* data = modsByID[idx];
+
+			if (data && data->name)
+				activeModList[idx] = LookupModByName(data->name);
 		}
+
+		cachedCount = numLoadedMods;
+		cachedFirst = first;
 	}
 
 	return activeModList;
 }
 
+void EnsureModIndexCache(DataHandler* dh)
+{
+	ModEntry::Data* first =
+		(dh->numLoadedMods > 0) ? dh->modsByID[0] : nullptr;
+
+	if (first != s_cachedFirst)
+	{
+		s_modIndexCache.clear();
+		s_cachedCount = 0;
+		s_cachedFirst = first;
+	}
+
+	if (dh->numLoadedMods <= s_cachedCount)
+		return;
+
+	for (UInt32 idx = s_cachedCount; idx < dh->numLoadedMods && idx < 0x100; ++idx)
+	{
+		ModEntry::Data* data = dh->modsByID[idx];
+
+		if (data && data->name && data->name[0])
+			s_modIndexCache[ToLower(data->name)] = (UInt8)idx;
+	}
+
+	s_cachedCount = dh->numLoadedMods;
+}
+
+// Returns the load order byte, or 0xFF if not found.
+//
+// ESLs are not in modsByID, so this returns 0xFF for them -- and that is
+// correct. 0xFE identifies the container, not which of 4096 plugins, so
+// returning it here would make callers build FormIDs pointing at ESL 0.
+// Callers that need ESL support want GetFormIDBase.
 UInt8 DataHandler::GetModIndex(const char* modName)
 {
-	UInt8 modIndex = 0xFF;
-	const ModEntry** activeModList = GetActiveModList();
+	if (!modName || !modName[0])
+		return 0xFF;
 
-	for (UInt8 idx = 0; idx < 0x100 && activeModList[idx] && modIndex == 0xFF; idx++) {
-		if (!_stricmp(activeModList[idx]->data->name, modName))
-			modIndex = idx;
-	}
-	return modIndex;
+	EnsureModIndexCache(this);
+
+	auto it = s_modIndexCache.find(ToLower(modName));
+
+	return (it != s_modIndexCache.end()) ? it->second : 0xFF;
 }
 
 UInt8 DataHandler::GetActiveModCount()
 {
-	UInt8 count = 0;
-	const ModEntry** activeModList = GetActiveModList();
-
-	while (activeModList[count])
-		count++;
-
-	return count;
+	return (UInt8)((numLoadedMods < 0xFF) ? numLoadedMods : 0xFF);
 }
 
 const char* DataHandler::GetNthModName(UInt32 modIndex)
 {
-	const ModEntry** activeModList = GetActiveModList();
-	if (modIndex < GetActiveModCount() && activeModList[modIndex]->data)
-		return activeModList[modIndex]->data->name;
-	else
+	if (modIndex == 0xFE && s_esl)
 		return "";
+
+	if (modIndex >= numLoadedMods)
+		return "";
+
+	ModEntry::Data* data = modsByID[modIndex];
+
+	return (data && data->name) ? data->name : "";
+}
+
+UInt32 DataHandler::GetFormIDBase(const char* modName)
+{
+	UInt8 index = GetModIndex(modName);
+
+	if (index != 0xFF)
+		return (UInt32)index << 24;
+
+	if (s_esl && s_esl->GetFormIDBase)
+		return s_esl->GetFormIDBase(modName);
+
+	return kInvalidFormIDBase;
+}
+
+const char* DataHandler::GetModNameForFormID(UInt32 formID)
+{
+	UInt8 high = (formID >> 24) & 0xFF;
+
+	if (high == 0xFF)
+		return "";
+
+	if (high == 0xFE && s_esl && s_esl->GetNameByIndex)
+	{
+		const char* name = s_esl->GetNameByIndex((UInt16)((formID >> 12) & 0x0FFF));
+
+		return name ? name : "";
+	}
+
+	return GetNthModName(high);
 }
 
 TESGlobal* DataHandler::GetGlobalVarByName(const char* varName, UInt32 nameLen)
@@ -180,8 +275,8 @@ UInt16 TimeGlobals::GetNumDaysInMonth(UInt32 monthID)
 }
 
 // Water Shader stuff
-struct WaterShaderPropertyData	{
-	const char*	name;
+struct WaterShaderPropertyData {
+	const char* name;
 	UInt32		addr;
 	bool		bIsPercentage;	// opacity and blend get multiplied by 100 for return value
 };

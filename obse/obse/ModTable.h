@@ -21,6 +21,7 @@ public:
 	UInt8		GetModIndex (const std::string& name);
 	bool		SetAlias (const std::string& name, UInt8 modIndex);
 	std::string	GetAlias (const std::string& actualName);
+	UInt32 GetFormIDBase(const std::string& name);
 
 	static ModTable& Get ();
 private:

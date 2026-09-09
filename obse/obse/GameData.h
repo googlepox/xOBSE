@@ -378,6 +378,16 @@ STATIC_ASSERT(offsetof(ModEntry::Data, headerRead) == 0x28C);
 
 STATIC_ASSERT(sizeof(ModEntry::Data) == 0x41C);
 
+struct OBSE_ESLInterface
+{
+	UInt32        version;
+	UInt32(__cdecl* GetFormIDBase)(const char* modName);
+	const char* (__cdecl* GetNameByIndex)(UInt16 eslIndex);
+};
+
+static const UInt32 kInvalidFormIDBase = 0xFFFFFFFF;
+
+const OBSE_ESLInterface* GetESLInterface();
 
 // CE0 / 1220 (editor, due entirely to difference in size of TESSkill)
 class DataHandler
@@ -439,6 +449,8 @@ public:
 	const char* GetNthModName(UInt32 modIndex);
 	TESGlobal* GetGlobalVarByName(const char* varName, UInt32 nameLen);
 	TESQuest* GetQuestByEditorName(const char* questName, UInt32 nameLen = -1);
+	UInt32 GetFormIDBase(const char* modName);
+	const char* GetModNameForFormID(UInt32 formID);
 };
 
 #if OBLIVION

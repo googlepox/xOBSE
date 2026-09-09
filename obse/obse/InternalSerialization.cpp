@@ -166,6 +166,7 @@ void ResetGlobals ()
 void Core_SaveCallback(void * reserved)
 {
 	SaveModList(&g_OBSESerializationInterface);
+	Serialization::SaveESLList(&g_OBSESerializationInterface);
 	g_StringMap.Save(&g_OBSESerializationInterface);
 	g_ArrayMap.Save(&g_OBSESerializationInterface);
 	SaveGlobals (&g_OBSESerializationInterface);
@@ -226,6 +227,7 @@ void Core_PreloadCallback(void * reserved)
 	// reset refID fixup table. if save made prior to 0019, this will remain empty
 	s_numPreloadMods = 0;	// no need to zero out table - unloaded mods will be set to 0xFF below
 
+	Serialization::ResetESLRemap();
 	OBSESerializationInterface* intfc = &g_OBSESerializationInterface;
 
 	g_ArrayMap.Preload();
@@ -235,28 +237,34 @@ void Core_PreloadCallback(void * reserved)
 
 	while (intfc->GetNextRecordInfo(&type, &version, &length)) {
 		switch (type) {
-			case 'MODS':
-				// as of 0019 mod list stored in co-save
-				ReadModListFromCoSave(intfc);
-				break;
-			case 'STVS':
-				if (!s_numPreloadMods) {
-					// pre-0019 co-save doesn't contain mod list, read from .ess instead
-					ReadModListFromSaveGame((const char*)reserved);
-				}
+		case 'MODS':
+			// as of 0019 mod list stored in co-save
+			ReadModListFromCoSave(intfc);
+			break;
+		case 'ESLS':
+			// ESL plugins are not in modsByID, so they are recorded
+			// separately -- appending them to MODS would shift every
+			// normal plugin's index.
+			Serialization::LoadESLList(intfc, length);
+			break;
+		case 'STVS':
+			if (!s_numPreloadMods) {
+				// pre-0019 co-save doesn't contain mod list, read from .ess instead
+				ReadModListFromSaveGame((const char*)reserved);
+			}
 
-				g_StringMap.Load(intfc);
-				break;
-			case 'ARVS':
-				if (!s_numPreloadMods) {
-					// pre-0019 co-save doesn't contain mod list, read from .ess instead
-					ReadModListFromSaveGame((const char*)reserved);
-				}
+			g_StringMap.Load(intfc);
+			break;
+		case 'ARVS':
+			if (!s_numPreloadMods) {
+				// pre-0019 co-save doesn't contain mod list, read from .ess instead
+				ReadModListFromSaveGame((const char*)reserved);
+			}
 
-				g_ArrayMap.Load(intfc);
-				break;
-			default:
-				break;
+			g_ArrayMap.Load(intfc);
+			break;
+		default:
+			break;
 		}
 	}
 }

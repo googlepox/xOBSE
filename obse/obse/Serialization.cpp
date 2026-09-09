@@ -6,6 +6,7 @@
 #include <vector>
 #include "EventManager.h"
 #include <obse_common/obse_version.h>
+#include "GameData.h"
 
 // ### TODO: only create save file when something has registered a handler
 
@@ -73,6 +74,129 @@ UInt64			s_chunkHeaderOffset = 0;
 ChunkHeader		s_chunkHeader = { 0 };
 
 bool			s_preloading = false;		// if true, we are reading co-save *before* savegame begins to load
+
+static const UInt32 kESLListChunkType = 'ESLS';
+
+static UInt16	s_preloadESLRemap[0x1000];
+static bool		s_haveESLRemap = false;
+
+static const UInt16 kESLNotLoaded = 0xFFFF;
+
+void SaveESLList(OBSESerializationInterface* obse)
+{
+	const OBSE_ESLInterface* esl = GetESLInterface();
+
+	if (!esl || !esl->GetNameByIndex)
+		return;
+
+	std::vector<std::pair<UInt16, const char*>> entries;
+
+	for (UInt32 i = 0; i < 0x1000; i++)
+	{
+		const char* name = esl->GetNameByIndex((UInt16)i);
+
+		if (name && name[0])
+			entries.push_back(std::make_pair((UInt16)i, name));
+	}
+
+	if (entries.empty())
+		return;
+
+	obse->OpenRecord(kESLListChunkType, 0);
+
+	UInt32 count = (UInt32)entries.size();
+	obse->WriteRecordData(&count, sizeof(count));
+
+	for (UInt32 i = 0; i < entries.size(); i++)
+	{
+		UInt16 index = entries[i].first;
+		UInt16 nameLen = (UInt16)strlen(entries[i].second);
+
+		obse->WriteRecordData(&index, sizeof(index));
+		obse->WriteRecordData(&nameLen, sizeof(nameLen));
+		obse->WriteRecordData(entries[i].second, nameLen);
+	}
+
+	_MESSAGE("SaveESLList: wrote %u ESL entries", count);
+}
+
+void LoadESLList(OBSESerializationInterface* obse, UInt32 length)
+{
+	for (UInt32 i = 0; i < 0x1000; i++)
+		s_preloadESLRemap[i] = kESLNotLoaded;
+
+	s_haveESLRemap = true;
+
+	const OBSE_ESLInterface* esl = GetESLInterface();
+
+	UInt32 count = 0;
+	obse->ReadRecordData(&count, sizeof(count));
+
+	UInt32 matched = 0, missing = 0;
+
+	for (UInt32 i = 0; i < count; i++)
+	{
+		UInt16 savedIndex = 0;
+		UInt16 nameLen = 0;
+
+		obse->ReadRecordData(&savedIndex, sizeof(savedIndex));
+		obse->ReadRecordData(&nameLen, sizeof(nameLen));
+
+		if (!nameLen || nameLen > 512)
+		{
+			_MESSAGE("LoadESLList: corrupt entry at %u", i);
+			break;
+		}
+
+		char name[513];
+		obse->ReadRecordData(name, nameLen);
+		name[nameLen] = 0;
+
+		if (savedIndex >= 0x1000)
+			continue;
+
+		if (esl && esl->GetFormIDBase)
+		{
+			UInt32 base = esl->GetFormIDBase(name);
+
+			if (base != kInvalidFormIDBase && (base >> 24) == 0xFE)
+			{
+				s_preloadESLRemap[savedIndex] = (UInt16)((base >> 12) & 0x0FFF);
+				matched++;
+				continue;
+			}
+		}
+
+		missing++;
+		_MESSAGE("LoadESLList: '%s' was in the cosave but is not loaded", name);
+	}
+
+	_MESSAGE("LoadESLList: %u matched, %u missing", matched, missing);
+}
+
+void ResetESLRemap()
+{
+	s_haveESLRemap = false;
+}
+
+static bool ResolveESLRefID(UInt32 refID, UInt32* outRefID)
+{
+	if (!s_preloading || !s_haveESLRemap)
+	{
+		*outRefID = refID;
+		return true;
+	}
+
+	UInt16 savedIndex = (refID >> 12) & 0x0FFF;
+	UInt16 nowIndex = s_preloadESLRemap[savedIndex];
+
+	if (nowIndex == kESLNotLoaded)
+		return false;		// plugin no longer present
+
+	*outRefID = 0xFE000000 | ((UInt32)nowIndex << 12) | (refID & 0x0FFF);
+
+	return true;
+}
 
 // utilities
 
@@ -313,6 +437,9 @@ bool ResolveRefID(UInt32 refID, UInt32 * outRefID)
 		*outRefID = refID;
 		return true;
 	}
+
+	if (modID == 0xFE && GetESLInterface())
+		return ResolveESLRefID(refID, outRefID);
 
 	UInt8	loadedModID = 0xFF;
 	if (s_preloading)	// game->modRefIDTable not yet processed, use data from cosave

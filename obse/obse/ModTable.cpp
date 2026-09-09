@@ -55,3 +55,15 @@ std::string ModTable::GetAlias (const std::string& actualName)
 		return "";
 }
 
+UInt32 ModTable::GetFormIDBase(const std::string& name)
+{
+	UInt32 base = (*g_dataHandler)->GetFormIDBase(name.c_str());
+	if (base != kInvalidFormIDBase)
+		return base;
+
+	AliasMap::const_iterator iter = m_aliasMap.find(name);
+	if (m_aliasMap.end() != iter)
+		return (UInt32)iter->second << 24;
+
+	return kInvalidFormIDBase;
+}

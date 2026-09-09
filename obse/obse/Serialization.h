@@ -36,6 +36,9 @@ UInt32	ReadRecordData(void * buf, UInt32 length);
 
 bool	ResolveRefID(UInt32 refID, UInt32 * outRefID);
 
+void SaveESLList(OBSESerializationInterface* obse);
+void LoadESLList(OBSESerializationInterface* obse, UInt32 length);
+void ResetESLRemap();
 // internal event handlers
 void	HandleSaveGame(const char * path);
 void	HandleLoadGame(const char * path, OBSESerializationInterface::EventCallback PluginCallbacks::* callback = &PluginCallbacks::load);
