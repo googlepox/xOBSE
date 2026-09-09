@@ -2469,6 +2469,18 @@ void TESPackage::SetFlag(UInt32 flag, bool bSet)
 	}
 }
 
+void TESAIForm::PackageEntry::DeleteHead(TESAIForm::PackageEntry* replaceWith)
+{
+	if (replaceWith)
+	{
+		package = replaceWith->package;
+		next = replaceWith->next;
+		FormHeap_Free(replaceWith);
+	}
+	else
+		memset(this, 0, sizeof(PackageEntry));
+}
+
 static const char* TESPackage_ObjectTypeStrings[TESPackage::kObjectType_Max] =
 {
 	"NONE", "Activators", "Apparatus", "Armor", "Books", "Clothing", "Containers", "Doors", "Ingredients", "Lights", "Miscellaneous", "Flora", "Furniture",

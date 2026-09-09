@@ -1027,6 +1027,8 @@ public:
 
 		TESPackage * Info() const	{ return package; }
 		PackageEntry * Next() const	{ return next; }
+		void DeleteHead(PackageEntry* replaceWith);
+		void SetNext(PackageEntry* nextEntry) { next = nextEntry; }
 	};
 
 	enum{
